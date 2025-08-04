@@ -6,4 +6,4 @@
 - Uvicorn
 
 ### APIの流れ
-<img width="996" height="581" alt="image" src="https://github.com/user-attachments/assets/cd66f792-7c72-4a0f-b689-106034a10096" />
+<img width="823" height="515" alt="image" src="https://github.com/user-attachments/assets/6e9826f4-6b92-435f-b6a4-c85ad6c57682" />
