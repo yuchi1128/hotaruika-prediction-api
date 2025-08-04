@@ -50,72 +50,74 @@ class PredictionService:
 
         self.data_fetcher = DataFetcher()
 
-    # <<< この関数を全面的に修正しました >>>
     async def create_features_for_day(self, target_date: date, full_hourly_df: pd.DataFrame, moon_age: float) -> pd.Series:
-        """
-        指定された1日分の特徴量を生成する。
-        全期間の気象データ(`full_hourly_df`)から必要な部分を都度抽出する方式に変更。
-        """
-        date_dt = pd.to_datetime(target_date)
-        row = {
-            'date': date_dt, 'year': date_dt.year, 'month': date_dt.month, 'day': date_dt.day,
-            'weekday': date_dt.weekday(), 'week_of_year': date_dt.isocalendar().week,
-            'week_of_month': (date_dt.day - 1) // 7 + 1, 'day_of_year': date_dt.dayofyear,
-            'is_weekend': 1 if date_dt.weekday() in [5, 6] else 0,
-            'is_holiday': 1 if date_dt.strftime('%Y-%m-%d') in jp_holidays else 0,
-            'moon_age': moon_age
-        }
+            """
+            指定された1日分の特徴量を生成する。
+            (UserWarningを解消するためにデータ抽出方法を修正)
+            """
+            date_dt = pd.to_datetime(target_date)
+            row = {
+                'date': date_dt, 'year': date_dt.year, 'month': date_dt.month, 'day': date_dt.day,
+                'weekday': date_dt.weekday(), 'week_of_year': date_dt.isocalendar().week,
+                'week_of_month': (date_dt.day - 1) // 7 + 1, 'day_of_year': date_dt.dayofyear,
+                'is_weekend': 1 if date_dt.weekday() in [5, 6] else 0,
+                'is_holiday': 1 if date_dt.strftime('%Y-%m-%d') in jp_holidays else 0,
+                'moon_age': moon_age
+            }
 
-        # 1. 気温・降水量用の時間帯データを抽出 (当日10:00から翌日04:00まで)
-        tp_start = pd.to_datetime(f"{target_date} 10:00:00")
-        tp_end = pd.to_datetime(f"{target_date + timedelta(days=1)} 04:00:00")
-        temp_precip_weather = full_hourly_df[(full_hourly_df['time'] >= tp_start) & (full_hourly_df['time'] <= tp_end)]
+            # 1. 気温・降水量用の時間帯データを抽出
+            tp_start = pd.to_datetime(f"{target_date} 10:00:00")
+            tp_end = pd.to_datetime(f"{target_date + timedelta(days=1)} 04:00:00")
+            temp_precip_weather = full_hourly_df[full_hourly_df['time'].between(tp_start, tp_end)]
 
-        # 2. 風用の時間帯データを抽出 (当日20:00から翌日04:00まで)
-        wind_start = pd.to_datetime(f"{target_date} 20:00:00")
-        wind_end = pd.to_datetime(f"{target_date + timedelta(days=1)} 04:00:00")
-        wind_weather = full_hourly_df[(full_hourly_df['time'] >= wind_start) & (full_hourly_df['time'] <= wind_end)]
+            # 2. 風用の時間帯データを抽出
+            wind_start = pd.to_datetime(f"{target_date} 20:00:00")
+            wind_end = pd.to_datetime(f"{target_date + timedelta(days=1)} 04:00:00")
+            wind_weather = full_hourly_df[full_hourly_df['time'].between(wind_start, wind_end)]
 
-        # 3. 時間帯別の特徴量用データを抽出
-        tp_10_13 = full_hourly_df[full_hourly_df['time'].dt.date == target_date][full_hourly_df['time'].dt.hour.between(10, 13)]
-        tp_14_17 = full_hourly_df[full_hourly_df['time'].dt.date == target_date][full_hourly_df['time'].dt.hour.between(14, 17)]
-        tp_18_21 = full_hourly_df[full_hourly_df['time'].dt.date == target_date][full_hourly_df['time'].dt.hour.between(18, 21)]
-        tp_22_00 = full_hourly_df[(full_hourly_df['time'].dt.date == target_date) & (full_hourly_df['time'].dt.hour >= 22) | (full_hourly_df['time'].dt.date == target_date + timedelta(days=1)) & (full_hourly_df['time'].dt.hour == 0)]
-        tp_01_04 = full_hourly_df[(full_hourly_df['time'].dt.date == target_date + timedelta(days=1)) & (full_hourly_df['time'].dt.hour.between(1, 4))]
+            # 3. 時間帯別の特徴量用データを、条件を一つにまとめて抽出
+            is_target_date = (full_hourly_df['time'].dt.date == target_date)
+            is_next_date = (full_hourly_df['time'].dt.date == target_date + timedelta(days=1))
+            
+            tp_10_13 = full_hourly_df[is_target_date & full_hourly_df['time'].dt.hour.between(10, 13)]
+            tp_14_17 = full_hourly_df[is_target_date & full_hourly_df['time'].dt.hour.between(14, 17)]
+            tp_18_21 = full_hourly_df[is_target_date & full_hourly_df['time'].dt.hour.between(18, 21)]
+            tp_22_00 = full_hourly_df[(is_target_date & (full_hourly_df['time'].dt.hour >= 22)) | (is_next_date & (full_hourly_df['time'].dt.hour == 0))]
+            tp_01_04 = full_hourly_df[is_next_date & full_hourly_df['time'].dt.hour.between(1, 4)]
+            
+            # --- 気象特徴量の計算 (これ以降のロジックは変更なし) ---
+            temps = temp_precip_weather['temperature_2m'].dropna()
+            row['temperature_mean'] = temps.mean()
+            row['temperature_max'] = temps.max()
+            row['temperature_min'] = temps.min()
+            row['temperature_std'] = temps.std()
 
-        # --- 気象特徴量の計算 ---
-        temps = temp_precip_weather['temperature_2m'].dropna()
-        row['temperature_mean'] = temps.mean()
-        row['temperature_max'] = temps.max()
-        row['temperature_min'] = temps.min()
-        row['temperature_std'] = temps.std()
+            row['temperature_mean_10_13'] = tp_10_13['temperature_2m'].mean()
+            row['temperature_mean_14_17'] = tp_14_17['temperature_2m'].mean()
+            row['temperature_mean_18_21'] = tp_18_21['temperature_2m'].mean()
+            row['temperature_mean_22_0'] = tp_22_00['temperature_2m'].mean()
+            row['temperature_mean_1_4'] = tp_01_04['temperature_2m'].mean()
+            
+            precs = temp_precip_weather['precipitation'].dropna()
+            row['precipitation_sum'] = precs.sum()
+            row['precipitation_binary'] = 1 if row['precipitation_sum'] > 0 else 0
 
-        row['temperature_mean_10_13'] = tp_10_13['temperature_2m'].mean()
-        row['temperature_mean_14_17'] = tp_14_17['temperature_2m'].mean()
-        row['temperature_mean_18_21'] = tp_18_21['temperature_2m'].mean()
-        row['temperature_mean_22_0'] = tp_22_00['temperature_2m'].mean()
-        row['temperature_mean_1_4'] = tp_01_04['temperature_2m'].mean()
-        
-        precs = temp_precip_weather['precipitation'].dropna()
-        row['precipitation_sum'] = precs.sum()
-        row['precipitation_binary'] = 1 if row['precipitation_sum'] > 0 else 0
-
-        row['precipitation_sum_10_13'] = tp_10_13['precipitation'].sum()
-        row['precipitation_sum_14_17'] = tp_14_17['precipitation'].sum()
-        row['precipitation_sum_18_21'] = tp_18_21['precipitation'].sum()
-        row['precipitation_sum_22_0'] = tp_22_00['precipitation'].sum()
-        row['precipitation_sum_1_4'] = tp_01_04['precipitation'].sum()
-        
-        winds = wind_weather['wind_speed_ms'].dropna()
-        row['wind_speed_mean'] = winds.mean()
-        row['wind_speed_max'] = winds.max()
-        row['wind_speed_min'] = winds.min()
-        row['wind_speed_std'] = winds.std()
-        
-        wind_dirs = wind_weather['wind_direction_str'].dropna().tolist()
-        row['wind_direction_mean'] = mean_wind_direction(wind_dirs)
-        
-        return pd.Series(row).fillna(0) # 最後にnanを0で埋める処理を追加して頑健にする
+            row['precipitation_sum_10_13'] = tp_10_13['precipitation'].sum()
+            row['precipitation_sum_14_17'] = tp_14_17['precipitation'].sum()
+            row['precipitation_sum_18_21'] = tp_18_21['precipitation'].sum()
+            row['precipitation_sum_22_0'] = tp_22_00['precipitation'].sum()
+            row['precipitation_sum_1_4'] = tp_01_04['precipitation'].sum()
+            
+            winds = wind_weather['wind_speed_ms'].dropna()
+            row['wind_speed_mean'] = winds.mean()
+            row['wind_speed_max'] = winds.max()
+            row['wind_speed_min'] = winds.min()
+            row['wind_speed_std'] = winds.std()
+            
+            wind_dirs = wind_weather['wind_direction_str'].dropna().tolist()
+            row['wind_direction_mean'] = mean_wind_direction(wind_dirs)
+            
+            return pd.Series(row).fillna(0)
 
     def _engineer_features(self, df: pd.DataFrame) -> pd.DataFrame:
         df['moon_age_sin'] = np.sin(2 * np.pi * df['moon_age'] / 29.53)
