@@ -4,6 +4,7 @@
 - FastAPI
 - Docker
 - Uvicorn
+- GCP(Cloud Run)
 
 ### APIの流れ
 <img width="823" height="515" alt="image" src="https://github.com/user-attachments/assets/6e9826f4-6b92-435f-b6a4-c85ad6c57682" />
